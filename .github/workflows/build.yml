@@ -1,0 +1,67 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: Tests (core, desktop, UI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tauri's Linux libraries
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev
+      - name: Build the UI
+        run: npm ci && npm run build
+        working-directory: ui
+      - name: Core tests
+        run: cargo test
+        working-directory: core
+      - name: Desktop tests
+        run: cargo test
+        working-directory: desktop/src-tauri
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test and build
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orb-android
+          path: android/app/build/outputs/apk/release/*.apk
+
+  macos:
+    name: macOS app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install
+        run: npm ci --prefix ui && npm ci --prefix desktop
+      - name: Build
+        run: npm run build
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orb-macos
+          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg

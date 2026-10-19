@@ -1,0 +1,18 @@
+/* The orb window is transparent; only the orb is drawn. It stays anchored to the
+   window's right edge and vertical centre, so the window can grow and shrink around
+   it (see setOrbExpanded) without the orb moving on screen. */
+html, body.orb-page, .orb-page #root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.orb-dock {
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  line-height: 0;
+}

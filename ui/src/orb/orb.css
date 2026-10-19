@@ -1,0 +1,25 @@
+/* The liquid orb, from the Orb design system (components/bundle.css). */
+.orb-wrap { position: relative; display: inline-block; flex: none; vertical-align: middle; touch-action: none; }
+.orb-goo { position: absolute; pointer-events: none; }
+.orb-goo.g-good { --orb-c: var(--orb-good); }
+.orb-goo.g-bad { --orb-c: var(--orb-bad); }
+.orb-goo.g-neutral, .orb-goo.g-idle { --orb-c: var(--orb-neutral); }
+.orb-goo.g-idle { opacity: 0.6; }
+.orb-goo > span { position: absolute; left: 0; top: 0; border-radius: var(--radius-full); background: var(--orb-c); transition: background-color 400ms ease; }
+.orb-goo > .orb-ball { background: none; }
+.orb-ball > i { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--orb-c); transition: background-color 400ms ease; }
+.orb-goo:not(.is-live) .orb-ball > i { box-shadow: var(--shadow-orb); }
+.orb-goo > .orb-ease { transition: transform 180ms cubic-bezier(.34,1.56,.64,1), background-color 400ms ease; }
+.orb-goo > .orb-bud { transition: transform 420ms cubic-bezier(.34,1.56,.64,1), background-color 400ms ease; }
+.orb-jelly { animation: orb-jelly 640ms cubic-bezier(.34,1.56,.64,1); }
+@keyframes orb-jelly { 0% { transform: scale(1); } 30% { transform: scale(1.16,.86); } 55% { transform: scale(.92,1.08); } 80% { transform: scale(1.04,.97); } 100% { transform: scale(1); } }
+
+.orb-hit { position: absolute; left: 0; top: 0; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-full); background: transparent; cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.orb-hit:active { cursor: grabbing; }
+.orb-hit:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.orb-hit.h-good { color: var(--on-orb-good); }
+.orb-hit.h-bad { color: var(--on-orb-bad); }
+.orb-hit.h-neutral, .orb-hit.h-idle { color: var(--on-orb-neutral); }
+.orb-hit.h-bad::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 0 0 var(--orb-bad); animation: orb-pulse 1.6s ease-out 3; pointer-events: none; }
+@keyframes orb-pulse { from { box-shadow: 0 0 0 0 var(--orb-bad); opacity: .7; } to { box-shadow: 0 0 0 12px var(--orb-bad); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .orb-goo > span, .orb-goo > .orb-bud, .orb-goo > .orb-ease { transition: none; } .orb-jelly, .orb-hit.h-bad::after { animation: none; } }

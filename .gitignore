@@ -1,0 +1,17 @@
+node_modules/
+dist/
+target/
+.DS_Store
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+.idea/
+android/typecheck/build/
+android/typecheck/.gradle/
+.kotlin/
+# Tauri
+desktop/src-tauri/gen/

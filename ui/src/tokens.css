@@ -1,0 +1,63 @@
+/* Orb design system tokens — generated from the Orb design system's tokens.json. Dark is the primary theme. */
+:root {
+  color-scheme: dark light;
+  --ground: #0e1013;
+  --surface: #16191e;
+  --surface-raised: #1e2228;
+  --line: #2b3038;
+  --ink: #eef1f5;
+  --ink-muted: #9aa3af;
+  --good: #4ade9a;
+  --good-soft: #10301f;
+  --bad: #ff7a75;
+  --bad-soft: #3a1517;
+  --neutral-soft: #232830;
+  --orb-good: #3ddc97;
+  --orb-bad: #e5484d;
+  --orb-neutral: #5d6878;
+  --on-orb-good: #06281a;
+  --on-orb-bad: #ffffff;
+  --on-orb-neutral: #ffffff;
+  --focus: #7cc4ff;
+  --dark-emerald: #066839ff;
+  --emerald-depths: #0a5c36ff;
+  --emerald-depths-2: #0f5132ff;
+  --deep-forest: #14452fff;
+  --evergreen: #18392bff;
+  --jet-black: #1d2e28ff;
+  --carbon-black: #212224ff;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  --shadow-orb: 0 6px 18px rgba(0,0,0,0.28);
+  --shadow-window: 0 18px 48px rgba(0,0,0,0.32);
+  --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ground: #eef0f3;
+    --surface: #f7f8fa;
+    --surface-raised: #ffffff;
+    --line: #d9dde3;
+    --ink: #14171c;
+    --ink-muted: #5a6370;
+    --good: #0f7a4d;
+    --good-soft: #dcf5e9;
+    --bad: #b42520;
+    --bad-soft: #fde4e2;
+    --neutral-soft: #e5e8ec;
+    --orb-good: #1fbf7a;
+    --orb-bad: #c92a2a;
+    --orb-neutral: #7a8494;
+    --focus: #0b62c4;
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The orb and main windows may call Orb's own commands and listen for its events.",
+  "windows": ["orb", "main"],
+  "permissions": ["core:default"]
+}

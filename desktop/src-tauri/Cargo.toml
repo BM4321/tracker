@@ -1,0 +1,41 @@
+[package]
+name = "orb-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Orb: a liquid habit orb that floats on the edge of your Mac's screen."
+
+[lib]
+name = "orb_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+orb-core = { path = "../../core" }
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = "0.32"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tokio = { version = "1", features = ["time"] }
+
+# macOS ships SQLite and its own TLS, so nothing needs a C toolchain there
+[target.'cfg(target_os = "macos")'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSNotification", "NSOperation", "NSString", "NSObject", "block2"] }
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication", "block2"] }
+block2 = "0.6"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
