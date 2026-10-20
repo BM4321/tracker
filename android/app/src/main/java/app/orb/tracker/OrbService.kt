@@ -5,10 +5,15 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.graphics.RectF
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
@@ -21,8 +26,8 @@ import app.orb.tracker.core.Tracker
  * Watches which app is in front and floats the orb over everything.
  *
  * An accessibility service is told when the foreground window changes, so nothing polls:
- * the CPU only wakes on app switches, screen on/off and a once-a-minute checkpoint while
- * the screen is on. The orb is a TYPE_ACCESSIBILITY_OVERLAY window, which needs no
+ * the CPU only wakes on app switches, screen on/off and a 5-minute save of the open session
+ * while the screen is on. The orb is a TYPE_ACCESSIBILITY_OVERLAY window, which needs no
  * "draw over other apps" permission.
  */
 class OrbService : AccessibilityService() {
@@ -32,12 +37,10 @@ class OrbService : AccessibilityService() {
         @Volatile var instance: OrbService? = null
             private set
 
-        private const val CHECKPOINT_MS = 60_000L
-        private const val ORB_DP = 36
-        // the orb window at rest (orb, tether and droplets) and while handled
-        private const val REST_W_DP = 72
-        private const val REST_H_DP = 64
-        private const val HANDLED_DP = 260
+        /** The open session is saved this often while the screen is on, and on every switch. */
+        private const val CHECKPOINT_MS = 5 * 60_000L
+        /** The orb's diameter. */
+        private const val ORB_DP = 48
     }
 
     private lateinit var db: Db
@@ -45,9 +48,8 @@ class OrbService : AccessibilityService() {
     @Volatile private var rules: List<Rule> = emptyList()
     private val main = Handler(Looper.getMainLooper())
     private val wm by lazy { getSystemService(WINDOW_SERVICE) as WindowManager }
-    private var orb: LiquidOrb? = null
+    private var orb: WallOrb? = null
     private var params: WindowManager.LayoutParams? = null
-    private var orbCy = 0 // the orb's vertical centre on screen, px
     private val launchable = HashMap<String, Boolean>()
     private val listeners = mutableSetOf<(OrbUpdate) -> Unit>()
 
@@ -153,23 +155,58 @@ class OrbService : AccessibilityService() {
     fun isPaused() = tracker.isPaused(System.currentTimeMillis())
 
     // ---- the orb window --------------------------------------------------------------
+    // The orb's window is a small square around it at rest (so it blocks almost no touches)
+    // and the whole usable screen while you hold or drag it, so it can flow to any edge.
+
+    private val orbRadius get() = dp(ORB_DP / 2f)
+
+    /** The usable screen: inside the status bar, navigation bar and any display cutout. */
+    @Suppress("DEPRECATION")
+    private fun usableBounds(): RectF {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val m = wm.currentWindowMetrics
+            val i = m.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            val b = m.bounds
+            return RectF((b.left + i.left).toFloat(), (b.top + i.top).toFloat(), (b.right - i.right).toFloat(), (b.bottom - i.bottom).toFloat())
+        }
+        val dm = android.util.DisplayMetrics().also { wm.defaultDisplay.getRealMetrics(it) }
+        fun dimen(name: String) = resources.getIdentifier(name, "dimen", "android").let { if (it > 0) resources.getDimensionPixelSize(it) else 0 }
+        return RectF(0f, dimen("status_bar_height").toFloat(), dm.widthPixels.toFloat(), (dm.heightPixels - dimen("navigation_bar_height")).toFloat())
+    }
+
+    /** The saved anchor ("fx,fy,nx,ny", fractions of the usable screen), placed on `b`. */
+    private fun savedAnchor(b: RectF): Anchor {
+        val parts = db.meta("orb_anchor")?.split(",")?.mapNotNull { it.toFloatOrNull() }
+        val (fx, fy, nx, ny) = if (parts?.size == 4) parts else listOf(1f, 0.35f, -1f, 0f)
+        val r = orbRadius
+        val x = when { nx > 0 -> b.left; nx < 0 -> b.right; else -> (b.left + fx * b.width()).coerceIn(b.left + r, b.right - r) }
+        val y = when { ny > 0 -> b.top; ny < 0 -> b.bottom; else -> (b.top + fy * b.height()).coerceIn(b.top + r, b.bottom - r) }
+        return Anchor(x, y, nx.toInt(), ny.toInt())
+    }
+
+    private fun restFrame(a: Anchor, b: RectF): Rect {
+        val half = orbRadius * 1.5f
+        return Rect(
+            maxOf(b.left, a.x - half).toInt(), maxOf(b.top, a.y - half).toInt(),
+            minOf(b.right, a.x + half).toInt(), minOf(b.bottom, a.y + half).toInt(),
+        )
+    }
+
+    private fun place(frame: Rect) {
+        val p = params ?: return
+        val view = orb ?: return
+        if (p.x == frame.left && p.y == frame.top && p.width == frame.width() && p.height == frame.height()) return
+        p.x = frame.left
+        p.y = frame.top
+        p.width = frame.width()
+        p.height = frame.height()
+        view.setOrigin(frame.left.toFloat(), frame.top.toFloat())
+        wm.updateViewLayout(view, p)
+    }
 
     private fun showOrb() {
-        val screenH = resources.displayMetrics.heightPixels
-        orbCy = db.meta("orb_cy")?.toIntOrNull() ?: (screenH * 0.4).toInt()
-        val p = WindowManager.LayoutParams(
-            dp(REST_W_DP), dp(REST_H_DP),
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 0
-            y = orbCy - dp(REST_H_DP) / 2
-        }
-        val view = LiquidOrb(this, dp(ORB_DP.toFloat()), object : LiquidOrb.Listener {
+        val b = usableBounds()
+        val view = WallOrb(this, orbRadius, object : WallOrb.Listener {
             override fun onClick() {
                 startActivity(Intent(this@OrbService, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
@@ -184,34 +221,51 @@ class OrbService : AccessibilityService() {
                 }
             }
 
-            override fun onPressStart() = resize(dp(HANDLED_DP), dp(HANDLED_DP))
-            override fun onSettled() = resize(dp(REST_W_DP), dp(REST_H_DP))
+            override fun onPressStart() {
+                val full = orb?.bounds ?: return
+                place(Rect(full.left.toInt(), full.top.toInt(), full.right.toInt(), full.bottom.toInt()))
+            }
 
-            override fun onDragEnd(dx: Float, dy: Float): Float {
-                // a vertical pull slides the orb along the edge; sideways pulls spring back
-                if (kotlin.math.abs(dy) < dp(ORB_DP) * 0.6f) return 0f
-                val half = dp(REST_H_DP) / 2
-                val next = (orbCy + dy.toInt()).coerceIn(half, screenH - half)
-                val moved = next - orbCy
-                orbCy = next
-                db.setMeta("orb_cy", orbCy.toString())
-                params?.let { resize(it.width, it.height) }
-                return moved.toFloat()
+            override fun onMove(anchor: Anchor) {
+                val u = orb?.bounds ?: return
+                db.setMeta("orb_anchor", listOf((anchor.x - u.left) / u.width(), (anchor.y - u.top) / u.height(), anchor.nx, anchor.ny).joinToString(","))
+            }
+
+            override fun onSettled() {
+                val o = orb ?: return
+                place(restFrame(o.anchor, o.bounds))
             }
         })
+        view.bounds = b
+        view.anchor = savedAnchor(b)
         view.state = tracker.update().state
+        val frame = restFrame(view.anchor, b)
+        view.setOrigin(frame.left.toFloat(), frame.top.toFloat())
+        val p = WindowManager.LayoutParams(
+            frame.width(), frame.height(),
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = frame.left
+            y = frame.top
+        }
         wm.addView(view, p)
         orb = view
         params = p
     }
 
-    /** Resizes the orb window around the orb, keeping it on the right edge at orbCy. */
-    private fun resize(w: Int, h: Int) {
-        val p = params ?: return
-        val view = orb ?: return
-        p.width = w
-        p.height = h
-        p.y = orbCy - h / 2
-        wm.updateViewLayout(view, p)
+    /** Rotation or a new screen size: put the orb back on the same wall, in proportion. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val o = orb ?: return
+        val b = usableBounds()
+        o.bounds = b
+        o.anchor = savedAnchor(b)
+        place(restFrame(o.anchor, b))
     }
 }

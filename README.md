@@ -1,36 +1,56 @@
-# Orb
+# Sapphier
 
-A lightweight habit tracker that lives on the edge of your screen as a single liquid orb.
+A lightweight habit tracker that lives on the edge of your screen as a liquid orb.
 It watches which app is in front and answers one question at a glance: **is this time well spent?**
 
 - **Green**: a good habit (coding, notes, reading). Keep going.
 - **Red**: a habit you want to reduce (YouTube, social media, games). It pulses three times, then holds still.
 - **Grey**: not categorised, or idle.
 
-Click the orb to open today's breakdown. Drag it up or down to move it along the edge; pull it sideways and it stretches like liquid and springs back.
-Right-click it on the Mac, or long-press it on Android, to pause tracking for 30 minutes.
-Your Mac and Android phone sync through your own free Supabase project.
+## The orb
 
-The look comes from the **Orb design system** (colours, type, the liquid orb component).
+The orb is pressed flat against the wall: a **half circle** on any screen edge, a **quarter circle** in a corner.
 
-## What's in here
+- **Hover** (Mac): droplets drift around its rim, it breathes, and a bubble shows the habit and today's time on it.
+- **Hold**: it swells evenly until the long-press fires. On the Mac that opens a menu (open, pause 30 minutes, sync, quit); on Android it pauses or resumes tracking.
+- **Drag**: pull it off the wall and it becomes a ball on a neck of liquid. Let go and it flows to the nearest edge or corner.
+- **Click / tap**: opens Sapphier.
 
-| Path | What |
+At rest the orb is flat shapes and costs nothing. The liquid effect only runs while you touch it.
+
+## The app
+
+Four places, a sidebar on the Mac and a tab bar on Android:
+
+| | |
 | --- | --- |
-| `core/` | Rust: habit rules, sessions, daily summary. Shared by the Mac app. |
-| `ui/` | React + Vite: the orb window and the main window (Today, Habits, Sync). |
-| `desktop/` | Tauri 2 Mac app: watches the front app, hosts the orb, stores and syncs. |
-| `android/` | Kotlin Android app: the same orb and tracking, no extra libraries. |
-| `shared/rules.default.json` | The starting habits, used by both apps. |
-| `sync/schema.sql` | The Supabase tables both apps sync through. |
+| **Today** | What you are doing now (with a pause button), good vs reduce time, a timeline of your day with one lane per device, your daily limits and where the time went. |
+| **Week** | Good and reduce time for each of the last 7 days, as a chart or a table. |
+| **Habits** | Sort apps nobody has categorised yet in one tap; set each habit to Good, Reduce or Neutral; adjust limits and goals. |
+| **Devices** | Today on each device, and sync. |
+
+Times to reduce are hatched as well as red, so nothing relies on telling red from green.
 
 ## Light on the machine
 
 Both apps are event-driven: the system tells them when you switch apps, so nothing polls.
 
-- **Mac:** app switches and screen sleep arrive as `NSWorkspace` notifications. The only timers are a 30 s idle check (one counter read), a 1-minute save of the current session and a 10-minute sync. The orb is one small transparent window; the main window is created when you open it and destroyed when you close it. Release builds are size-optimised (`opt-level = "s"`, LTO).
-- **Android:** an accessibility service is told when the foreground window changes. While the screen is off nothing runs. Sync is a 15-minute `JobScheduler` job that only runs with a network.
-- **The orb:** at rest it is flat shapes. The liquid effect (a blur + threshold "goo" filter and a spring) only runs while you touch it, and switches off about 0.4 s after it settles.
+- **Mac:** app switches and screen sleep arrive as `NSWorkspace` notifications. The only timers are a 30 s idle check (one counter read), a 5-minute save of the current session (it is also saved on every switch, sleep and quit) and a 30-minute sync. The orb's window is a small square at rest, so it blocks no clicks; it fills the screen only while you drag. The main window is created when you open it and destroyed when you close it.
+- **Android:** an accessibility service is told when the foreground app changes. While the screen is off nothing runs. Background sync runs at most every 30 minutes, only on Wi-Fi and never on a low battery; opening the app syncs straight away.
+- **Fast to open:** both apps read your day from a small local database (SQLite, built into macOS and Android), so the window opens instantly; syncing happens in the background.
+
+Measured on the desktop build at rest (orb on screen, window closed, Linux test machine): **0.03% of one CPU core** over 30 seconds, and about **50 MB** of the app's own memory across its processes.
+
+## What's in here
+
+| Path | What |
+| --- | --- |
+| `core/` | Rust: habit rules, sessions, daily summary. |
+| `ui/` | The orb and the Sapphier window (React + Vite), built on the Orb design system. |
+| `desktop/` | Tauri 2 Mac app: watches the front app, hosts the orb, stores and syncs. |
+| `android/` | Kotlin Android app: the same orb and screens, using only the Android framework. |
+| `shared/rules.default.json` | The starting habits, used by both apps. |
+| `sync/schema.sql` | The Supabase tables both apps sync through. |
 
 ## Run it on your Mac
 
@@ -49,33 +69,29 @@ the built app, right-click it in Finder and choose **Open**.
 
 ## Run it on Android
 
-Open `android/` in Android Studio and press Run, or run `./gradlew :app:assembleDebug` with the Android SDK installed.
-The [GitHub Actions workflow](.github/workflows/build.yml) also builds an APK on every push (see the run's **orb-android** artifact).
+Open the `android/` folder in [Android Studio](https://developer.android.com/studio), connect your phone with USB debugging on, and press **Run**. The [GitHub Actions workflow](.github/workflows/build.yml) also builds an APK on every push (the run's **orb-android** artifact).
 
-On first launch, tap **Open accessibility settings** and turn on **Orb**. That service is how Orb
-sees which app is in front and draws the orb over other apps. It only reads app names, never what is on screen.
+On first launch, tap **Open accessibility settings** and turn on **Sapphier**. If you installed from an APK file and the switch is greyed out, first go to Settings → Apps → Sapphier → ⋮ → **Allow restricted settings**.
 
 ## Set up sync
 
 1. Create a free project at [supabase.com](https://supabase.com).
 2. In its **SQL editor**, run [`sync/schema.sql`](sync/schema.sql).
 3. Under **Authentication → Users**, add a user with an email and password.
-4. In Orb's **Sync** tab on each device, enter the project URL, the anon key (Project settings → API), the email and the password.
+4. In Sapphier's **Devices** tab on each device, enter the project URL, the anon key (Project settings → API), the email and the password.
 
-Each device pushes its own sessions and pulls the others' every 10 minutes (Mac) or 15 minutes (Android), and whenever you open the window. Habit edits sync too; the newest edit wins.
+Each device keeps its own record and uploads only what is new. Habit edits sync too; the newest edit wins.
 
 ## Choosing habits
 
-The **Habits** tab sets each habit to Good, Reduce or Neutral, with an optional daily limit.
-Habits match apps by bundle id on the Mac (`com.apple.dt.Xcode`) and package name on Android (`com.instagram.android`); a trailing `*` matches a prefix (`com.jetbrains.*`).
-To add apps or habits, edit [`shared/rules.default.json`](shared/rules.default.json) before first launch. After that, rules live in each device's database and sync.
+Habits match apps by bundle id on the Mac (`com.apple.dt.Xcode`) and package name on Android (`com.instagram.android`); a trailing `*` matches a prefix (`com.jetbrains.*`). Apps no habit covers show up under **Sort these apps** in the Habits tab. To change the starting set, edit [`shared/rules.default.json`](shared/rules.default.json) before first launch.
 
 ## Development
 
 ```sh
 cd core && cargo test                     # rules, merging, daily summary
 cd desktop/src-tauri && cargo test        # tracker and storage
-cd ui && npm run dev                      # the windows in a browser, with sample data
+cd ui && npm run dev                      # the windows in a browser, with example data
 cd android/typecheck && gradle test       # Android code against android-all, plus its unit tests (no SDK needed)
 ```
 

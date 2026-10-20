@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Orb</string>
-    <string name="accessibility_description">Orb sees which app is in front, so its floating orb can turn green for good habits and red for ones you want to reduce. It only reads app names, never what is on your screen, and keeps everything on your devices and your own sync project.</string>
+    <string name="app_name">Sapphier</string>
+    <string name="accessibility_description">Sapphier sees which app is in front, so its orb can turn green for good habits and red for ones you want to reduce. It only reads app names, never what is on your screen, and keeps everything on your devices and your own sync project.</string>
 </resources>

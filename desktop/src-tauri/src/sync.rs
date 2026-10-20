@@ -1,6 +1,6 @@
 //! Sync with the user's Supabase project (schema in `sync/schema.sql`). Each device pushes
 //! its own sessions and pulls everyone else's; rules merge last-writer-wins. Runs every
-//! 10 minutes and when the window opens, never in between.
+//! 30 minutes and when the window opens, never in between.
 
 use crate::{store, AppState};
 use orb_core::{merge_rules, Category, Platform, Rule, Session};

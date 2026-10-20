@@ -28,6 +28,20 @@ class Theme private constructor(dark: Boolean) {
     val onOrbBad = Color.WHITE
     val onOrbNeutral = Color.WHITE
     val focus = c("#7cc4ff", "#0b62c4", dark)
+    // Sapphier's accent, and chart colours checked for colour-blind separation
+    // (time to reduce is also hatched, so it never relies on hue alone)
+    val accent = c("#7ea6ff", "#2453c7", dark)
+    val accentSoft = c("#18233d", "#e3eafc", dark)
+    val onAccent = c("#0b1430", "#ffffff", dark)
+    val chartGood = c("#29ad75", "#13945c", dark)
+    val chartBad = c("#cf3a40", "#c92a2a", dark)
+    val chartOther = c("#4a5361", "#b8bec8", dark)
+
+    fun chart(c: Category) = when (c) {
+        Category.GOOD -> chartGood
+        Category.BAD -> chartBad
+        Category.NEUTRAL -> chartOther
+    }
 
     fun orbFill(s: OrbState) = when (s) {
         OrbState.GOOD -> orbGood
@@ -67,7 +81,8 @@ fun Context.dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 fun formatMinutes(m: Double): String {
     if (m <= 0) return "0m"
     if (m < 1) return "<1m"
-    val h = (m / 60).toInt()
-    val mn = Math.round(m % 60).toInt()
+    val total = Math.round(m).toInt()
+    val h = total / 60
+    val mn = total % 60
     return if (h > 0) "${h}h" + (if (mn > 0) " ${mn}m" else "") else "${mn}m"
 }

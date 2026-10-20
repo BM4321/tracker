@@ -38,12 +38,26 @@
   --radius-full: 9999px;
   --shadow-orb: 0 6px 18px rgba(0,0,0,0.28);
   --shadow-window: 0 18px 48px rgba(0,0,0,0.32);
+  /* Sapphier's accent, and chart colours checked for colour-blind separation
+     (time to reduce is also hatched, so it never relies on hue alone) */
+  --accent: #7ea6ff;
+  --accent-soft: #18233d;
+  --on-accent: #0b1430;
+  --chart-good: #29ad75;
+  --chart-bad: #cf3a40;
+  --chart-other: #4a5361;
   --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
+    --accent: #2453c7;
+    --accent-soft: #e3eafc;
+    --on-accent: #ffffff;
+    --chart-good: #13945c;
+    --chart-bad: #c92a2a;
+    --chart-other: #b8bec8;
     --ground: #eef0f3;
     --surface: #f7f8fa;
     --surface-raised: #ffffff;

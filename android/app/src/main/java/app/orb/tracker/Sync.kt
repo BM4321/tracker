@@ -141,17 +141,24 @@ object Sync {
     }
 }
 
-/** Runs [Sync] every 15 minutes when there is a network (the shortest period Android allows). */
+/**
+ * Background sync: every 30 minutes at most, only on Wi-Fi (or another unmetered network)
+ * and never on a low battery, so Android can batch it with other apps' work. Opening the
+ * app syncs straight away on any network ([now]).
+ */
 class SyncJob : JobService() {
     companion object {
-        private const val ID = 1
+        private const val ID = 2
+        private const val OLD_ID = 1 // the earlier every-15-minutes, any-network job
 
         fun schedule(context: Context) {
             val js = context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
+            js.cancel(OLD_ID)
             if (js.getPendingJob(ID) != null) return
             js.schedule(JobInfo.Builder(ID, ComponentName(context, SyncJob::class.java))
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(15 * 60_000L)
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED)
+                .setRequiresBatteryNotLow(true)
+                .setPeriodic(30 * 60_000L)
                 .setPersisted(true)
                 .build())
         }

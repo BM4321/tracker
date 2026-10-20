@@ -1,9 +1,10 @@
-//! Orb for macOS: a liquid orb on the edge of the screen that turns green for good
-//! habits and red for ones to reduce; clicking it opens today's breakdown.
+//! Sapphier for macOS: a liquid orb pressed against the edge of the screen that turns green
+//! for good habits and red for ones to reduce; clicking it opens the Sapphier window.
 //!
-//! CPU budget: app switches and screen sleep arrive as OS notifications (no polling);
-//! the only timers are a 30 s idle check, a 1 min checkpoint of the open session and a
-//! 10 min sync. The main window is created on demand and destroyed when closed.
+//! Resource budget: app switches and screen sleep arrive as OS notifications (no polling);
+//! the only timers are a 30 s idle check, a 5 min save of the open session (sessions are
+//! also saved on every switch, sleep and quit) and a 30 min sync. The main window is
+//! created on demand and destroyed when closed.
 
 mod commands;
 mod store;
@@ -13,6 +14,7 @@ mod watcher;
 
 use orb_core::{OrbState, Rule, Session};
 use rusqlite::Connection;
+use serde::Serialize;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,30 +30,11 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub syncing: AtomicBool,
     last_emitted: Mutex<Option<OrbUpdate>>,
-    orb: Mutex<OrbGeom>,
 }
 
-/// Where the orb window is, tracked here rather than read back from the window system
-/// (which can report stale values right after a change). The orb sits at the window's
-/// right edge and vertical centre, so `right` and `cy` are the orb's anchor.
-#[derive(Clone, Copy)]
-struct OrbGeom {
-    right: f64,
-    cy: f64,
-    size: (f64, f64),
-}
-
-impl OrbGeom {
-    fn place(&self, win: &tauri::WebviewWindow) -> tauri::Result<()> {
-        let (w, h) = self.size;
-        win.set_size(LogicalSize::new(w, h))?;
-        win.set_position(LogicalPosition::new(self.right - w, self.cy - h / 2.0))
-    }
-}
-
-/// The orb window at rest (just the orb, its tether and hover droplets) and while handled.
-const ORB_REST: (f64, f64) = (100.0, 80.0);
-const ORB_HANDLED: (f64, f64) = (320.0, 320.0);
+/// How often the open session is saved, and how many saves between syncs.
+const CHECKPOINT: Duration = Duration::from_secs(5 * 60);
+const SYNC_EVERY_CHECKPOINTS: u32 = 6; // 30 minutes
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -64,7 +47,7 @@ pub fn apply(app: &AppHandle, sessions: Vec<Session>) {
         let db = state.db.lock().unwrap();
         for s in &sessions {
             if let Err(e) = store::upsert_session(&db, s, true) {
-                eprintln!("orb: could not save session: {e}");
+                eprintln!("sapphier: could not save session: {e}");
             }
         }
     }
@@ -82,6 +65,7 @@ pub fn rules_changed(app: &AppHandle, rules: Vec<Rule>) {
     let sessions = state.tracker.lock().unwrap().reclassify(&rules, now_ms());
     *state.rules.lock().unwrap() = rules;
     apply(app, sessions);
+    let _ = app.emit("data-changed", ());
 }
 
 fn on_watch(app: &AppHandle, event: watcher::Event) {
@@ -113,21 +97,50 @@ pub fn resume(app: &AppHandle) {
     apply(app, sessions);
 }
 
-fn create_orb_window(app: &AppHandle) -> tauri::Result<()> {
-    let (w, h) = ORB_REST;
-    let (mut x, mut y) = (0.0, 200.0);
-    if let Some(m) = app.primary_monitor()? {
-        let size = m.size().to_logical::<f64>(m.scale_factor());
-        let pos = m.position().to_logical::<f64>(m.scale_factor());
-        x = pos.x + size.width - w;
-        let saved: Option<f64> = store::get_meta(&app.state::<AppState>().db.lock().unwrap(), "orb_y").ok().flatten().and_then(|v| v.parse().ok());
-        y = saved.unwrap_or(pos.y + size.height * 0.4).clamp(pos.y, pos.y + size.height - h);
+/// A rectangle in logical screen points.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+/// The usable area (without the menu bar and Dock) of the screen the orb is on.
+pub fn orb_screen(app: &AppHandle) -> tauri::Result<Rect> {
+    let monitor = match app.get_webview_window("orb") {
+        Some(w) => w.current_monitor()?.or(app.primary_monitor()?),
+        None => app.primary_monitor()?,
+    };
+    let Some(m) = monitor else { return Ok(Rect { x: 0.0, y: 0.0, w: 1440.0, h: 900.0 }) };
+    let s = m.scale_factor();
+    let area = m.work_area();
+    Ok(Rect {
+        x: area.position.x as f64 / s,
+        y: area.position.y as f64 / s,
+        w: area.size.width as f64 / s,
+        h: area.size.height as f64 / s,
+    })
+}
+
+/// The orb window's frame is decided by the orb page (it knows the orb's shape and
+/// whether it is being handled); this only applies it.
+pub fn orb_place(app: &AppHandle, r: Rect) -> tauri::Result<()> {
+    let Some(win) = app.get_webview_window("orb") else { return Ok(()) };
+    win.set_size(LogicalSize::new(r.w.max(1.0), r.h.max(1.0)))?;
+    win.set_position(LogicalPosition::new(r.x, r.y))?;
+    if !win.is_visible()? {
+        win.show()?;
     }
-    *app.state::<AppState>().orb.lock().unwrap() = OrbGeom { right: x + w, cy: y + h / 2.0, size: (w, h) };
+    Ok(())
+}
+
+fn create_orb_window(app: &AppHandle) -> tauri::Result<()> {
+    // hidden until the orb page has measured the screen and placed itself
     WebviewWindowBuilder::new(app, "orb", WebviewUrl::App("orb.html".into()))
-        .title("Orb")
-        .inner_size(w, h)
-        .position(x, y)
+        .title("Sapphier")
+        .inner_size(60.0, 80.0)
+        .visible(false)
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -141,58 +154,24 @@ fn create_orb_window(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Grows or shrinks the orb window around the orb, keeping it fixed on screen: anchored
-/// to the window's right edge and vertical centre.
-pub fn set_orb_expanded(app: &AppHandle, expanded: bool) -> tauri::Result<()> {
-    let Some(win) = app.get_webview_window("orb") else { return Ok(()) };
-    let size = if expanded { ORB_HANDLED } else { ORB_REST };
-    let state = app.state::<AppState>();
-    let mut geom = state.orb.lock().unwrap();
-    if geom.size == size {
-        return Ok(());
-    }
-    geom.size = size;
-    geom.place(&win)
-}
-
-/// Slides the orb along the screen edge; returns how far it actually moved.
-pub fn move_orb(app: &AppHandle, dy: f64) -> tauri::Result<f64> {
-    let Some(win) = app.get_webview_window("orb") else { return Ok(0.0) };
-    let (top, bottom) = match win.current_monitor()? {
-        Some(m) => {
-            let mp = m.position().to_logical::<f64>(m.scale_factor());
-            let ms = m.size().to_logical::<f64>(m.scale_factor());
-            (mp.y, mp.y + ms.height)
-        }
-        None => (f64::MIN, f64::MAX),
-    };
-    let state = app.state::<AppState>();
-    let mut geom = state.orb.lock().unwrap();
-    // keep the orb itself (not the transparent window) on screen
-    let cy = (geom.cy + dy).clamp(top + ORB_REST.1 / 2.0, bottom - ORB_REST.1 / 2.0);
-    let moved = cy - geom.cy;
-    geom.cy = cy;
-    geom.place(&win)?;
-    let _ = store::set_meta(&state.db.lock().unwrap(), "orb_y", &(cy - ORB_REST.1 / 2.0).to_string());
-    Ok(moved)
-}
-
 pub fn open_main(app: &AppHandle) -> tauri::Result<()> {
     if let Some(win) = app.get_webview_window("main") {
         win.show()?;
         win.set_focus()?;
     } else {
         WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-            .title("Orb")
-            .inner_size(560.0, 680.0)
-            .min_inner_size(380.0, 420.0)
+            .title("Sapphier")
+            .inner_size(820.0, 640.0)
+            .min_inner_size(400.0, 480.0)
             .build()?
             .set_focus()?;
     }
-    // catch up on the other devices while you look
+    // the window shows the local copy at once; this catches up on the other devices
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = sync::sync(&app).await;
+        if sync::sync(&app).await.is_ok() {
+            let _ = app.emit("data-changed", ());
+        }
     });
     Ok(())
 }
@@ -201,7 +180,7 @@ pub fn show_orb_menu(app: &AppHandle) -> tauri::Result<()> {
     let Some(win) = app.get_webview_window("orb") else { return Ok(()) };
     let paused = app.state::<AppState>().tracker.lock().unwrap().is_paused(now_ms());
     let menu = Menu::with_items(app, &[
-        &MenuItem::with_id(app, "open", "Open Orb", true, None::<&str>)?,
+        &MenuItem::with_id(app, "open", "Open Sapphier", true, None::<&str>)?,
         &if paused {
             MenuItem::with_id(app, "resume", "Resume tracking", true, None::<&str>)?
         } else {
@@ -209,9 +188,18 @@ pub fn show_orb_menu(app: &AppHandle) -> tauri::Result<()> {
         },
         &MenuItem::with_id(app, "sync", "Sync now", true, None::<&str>)?,
         &PredefinedMenuItem::separator(app)?,
-        &MenuItem::with_id(app, "quit", "Quit Orb", true, None::<&str>)?,
+        &MenuItem::with_id(app, "quit", "Quit Sapphier", true, None::<&str>)?,
     ])?;
     win.popup_menu(&menu)
+}
+
+fn sync_in_background(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if sync::sync(&app).await.is_ok() {
+            let _ = app.emit("data-changed", ());
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -221,10 +209,7 @@ pub fn run() {
             "open" => { let _ = open_main(app); }
             "pause" => pause(app, 30),
             "resume" => resume(app),
-            "sync" => {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move { let _ = sync::sync(&app).await; });
-            }
+            "sync" => sync_in_background(app),
             "quit" => {
                 // close the open session cleanly before exiting
                 let state = app.state::<AppState>();
@@ -250,8 +235,7 @@ pub fn run() {
                 device,
                 http: reqwest::Client::builder().timeout(Duration::from_secs(30)).build()?,
                 syncing: AtomicBool::new(false),
-                last_emitted: Mutex::new(Some(OrbUpdate { state: OrbState::Idle, current: None })),
-                orb: Mutex::new(OrbGeom { right: 0.0, cy: 0.0, size: ORB_REST }),
+                last_emitted: Mutex::new(Some(OrbUpdate { state: OrbState::Idle, current: None, paused_until: None })),
             });
 
             create_orb_window(app.handle())?;
@@ -259,19 +243,19 @@ pub fn run() {
             let handle = app.handle().clone();
             watcher::start(Arc::new(move |e| on_watch(&handle, e)));
 
-            // checkpoint the open session every minute; sync every ten
+            // save the open session every 5 minutes; sync every 30
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let mut minute = 0u32;
+                let mut n = 0u32;
                 loop {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    tokio::time::sleep(CHECKPOINT).await;
                     let state = handle.state::<AppState>();
                     let rules = state.rules.lock().unwrap().clone();
                     let sessions = state.tracker.lock().unwrap().tick(&rules, now_ms());
                     apply(&handle, sessions);
-                    minute += 1;
-                    if minute % 10 == 0 {
-                        let _ = sync::sync(&handle).await;
+                    n += 1;
+                    if n % SYNC_EVERY_CHECKPOINTS == 0 && sync::sync(&handle).await.is_ok() {
+                        let _ = handle.emit("data-changed", ());
                     }
                 }
             });
@@ -280,10 +264,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_orb_state,
             commands::get_today,
+            commands::get_timeline,
+            commands::get_week,
+            commands::get_devices,
             commands::open_main,
-            commands::set_orb_expanded,
-            commands::move_orb,
+            commands::orb_screen,
+            commands::orb_place,
+            commands::orb_anchor,
+            commands::set_orb_anchor,
             commands::show_orb_menu,
+            commands::set_paused,
             commands::get_rules,
             commands::save_rule,
             commands::get_sync,
@@ -291,5 +281,5 @@ pub fn run() {
             commands::sync_now,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Orb");
+        .expect("error while running Sapphier");
 }

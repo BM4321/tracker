@@ -15,6 +15,8 @@ pub struct Current {
     pub rule_id: Option<String>,
     pub rule_name: Option<String>,
     pub category: Category,
+    /// When this stretch in the app began (Unix ms).
+    pub since: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -22,6 +24,8 @@ pub struct Current {
 pub struct OrbUpdate {
     pub state: OrbState,
     pub current: Option<Current>,
+    /// Set while tracking is paused (Unix ms).
+    pub paused_until: Option<i64>,
 }
 
 pub struct Tracker {
@@ -39,6 +43,7 @@ impl Tracker {
     }
 
     pub fn update(&self) -> OrbUpdate {
+        let paused_until = self.paused_until;
         match &self.open {
             Some((s, rule_name)) => OrbUpdate {
                 state: s.category.into(),
@@ -48,9 +53,11 @@ impl Tracker {
                     rule_id: s.rule_id.clone(),
                     rule_name: rule_name.clone(),
                     category: s.category,
+                    since: s.started_at,
                 }),
+                paused_until,
             },
-            None => OrbUpdate { state: OrbState::Idle, current: None },
+            None => OrbUpdate { state: OrbState::Idle, current: None, paused_until },
         }
     }
 
